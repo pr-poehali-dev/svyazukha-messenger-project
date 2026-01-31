@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import Icon from '@/components/ui/icon';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -9,6 +9,15 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 
+type Message = {
+  id: string;
+  text?: string;
+  time: string;
+  isMine: boolean;
+  type: 'text' | 'voice';
+  duration?: number;
+};
+
 type Chat = {
   id: string;
   name: string;
@@ -18,6 +27,7 @@ type Chat = {
   unread: number;
   online?: boolean;
   type: 'direct' | 'group' | 'channel';
+  messages: Message[];
 };
 
 type Friend = {
@@ -32,13 +42,69 @@ const Index = () => {
   const [activeTab, setActiveTab] = useState<'chats' | 'friends' | 'groups' | 'channels' | 'profile'>('chats');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedChat, setSelectedChat] = useState<string | null>(null);
+  const [messageText, setMessageText] = useState('');
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingTime, setRecordingTime] = useState(0);
+  const recordingTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const mockChats: Chat[] = [
-    { id: '1', name: 'Алексей Иванов', avatar: '', lastMessage: 'Привет! Как дела?', time: '14:32', unread: 2, online: true, type: 'direct' },
-    { id: '2', name: 'Мария Петрова', avatar: '', lastMessage: 'Спасибо за помощь!', time: '13:15', unread: 0, online: false, type: 'direct' },
-    { id: '3', name: 'Веб-разработка', avatar: '', lastMessage: 'Кто-нибудь знает React?', time: '12:45', unread: 5, type: 'group' },
-    { id: '4', name: 'Новости СВЯЗУХИ', avatar: '', lastMessage: 'Новая версия выпущена!', time: 'Вчера', unread: 0, type: 'channel' },
-  ];
+  const [chats, setChats] = useState<Chat[]>([
+    { 
+      id: '1', 
+      name: 'Алексей Иванов', 
+      avatar: '', 
+      lastMessage: 'Привет! Как дела?', 
+      time: '14:32', 
+      unread: 2, 
+      online: true, 
+      type: 'direct',
+      messages: [
+        { id: '1', text: 'Привет! Как дела?', time: '14:30', isMine: false, type: 'text' },
+        { id: '2', text: 'Отлично, спасибо! А у тебя?', time: '14:31', isMine: true, type: 'text' },
+        { id: '3', text: 'Тоже хорошо! Планы на выходные?', time: '14:32', isMine: false, type: 'text' },
+      ]
+    },
+    { 
+      id: '2', 
+      name: 'Мария Петрова', 
+      avatar: '', 
+      lastMessage: 'Спасибо за помощь!', 
+      time: '13:15', 
+      unread: 0, 
+      online: false, 
+      type: 'direct',
+      messages: [
+        { id: '1', text: 'Можешь помочь с проектом?', time: '13:10', isMine: false, type: 'text' },
+        { id: '2', text: 'Конечно! Что нужно?', time: '13:12', isMine: true, type: 'text' },
+        { id: '3', text: 'Спасибо за помощь!', time: '13:15', isMine: false, type: 'text' },
+      ]
+    },
+    { 
+      id: '3', 
+      name: 'Веб-разработка', 
+      avatar: '', 
+      lastMessage: 'Кто-нибудь знает React?', 
+      time: '12:45', 
+      unread: 5, 
+      type: 'group',
+      messages: [
+        { id: '1', text: 'Всем привет!', time: '12:30', isMine: false, type: 'text' },
+        { id: '2', text: 'Кто-нибудь знает React?', time: '12:45', isMine: false, type: 'text' },
+      ]
+    },
+    { 
+      id: '4', 
+      name: 'Новости СВЯЗУХИ', 
+      avatar: '', 
+      lastMessage: 'Новая версия выпущена!', 
+      time: 'Вчера', 
+      unread: 0, 
+      type: 'channel',
+      messages: [
+        { id: '1', text: 'Новая версия выпущена!', time: 'Вчера', isMine: false, type: 'text' },
+      ]
+    },
+  ]);
 
   const mockFriends: Friend[] = [
     { id: '1', name: 'Алексей Иванов', avatar: '', code: 'ALEX2024', online: true },
@@ -46,11 +112,94 @@ const Index = () => {
     { id: '3', name: 'Дмитрий Сидоров', avatar: '', code: 'DIM123', online: true },
   ];
 
-  const mockMessages = [
-    { id: '1', text: 'Привет! Как дела?', time: '14:30', isMine: false },
-    { id: '2', text: 'Отлично, спасибо! А у тебя?', time: '14:31', isMine: true },
-    { id: '3', text: 'Тоже хорошо! Планы на выходные?', time: '14:32', isMine: false },
-  ];
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [chats, selectedChat]);
+
+  useEffect(() => {
+    if (isRecording) {
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingTime(prev => prev + 1);
+      }, 1000);
+    } else {
+      if (recordingTimerRef.current) {
+        clearInterval(recordingTimerRef.current);
+      }
+      setRecordingTime(0);
+    }
+    return () => {
+      if (recordingTimerRef.current) {
+        clearInterval(recordingTimerRef.current);
+      }
+    };
+  }, [isRecording]);
+
+  const sendMessage = () => {
+    if (!messageText.trim() || !selectedChat) return;
+
+    const currentTime = new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+    const newMessage: Message = {
+      id: Date.now().toString(),
+      text: messageText,
+      time: currentTime,
+      isMine: true,
+      type: 'text'
+    };
+
+    setChats(prevChats => prevChats.map(chat => {
+      if (chat.id === selectedChat) {
+        return {
+          ...chat,
+          messages: [...chat.messages, newMessage],
+          lastMessage: messageText,
+          time: currentTime
+        };
+      }
+      return chat;
+    }));
+
+    setMessageText('');
+  };
+
+  const startRecording = () => {
+    setIsRecording(true);
+  };
+
+  const stopRecording = () => {
+    if (!selectedChat || recordingTime === 0) {
+      setIsRecording(false);
+      return;
+    }
+
+    const currentTime = new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+    const newMessage: Message = {
+      id: Date.now().toString(),
+      time: currentTime,
+      isMine: true,
+      type: 'voice',
+      duration: recordingTime
+    };
+
+    setChats(prevChats => prevChats.map(chat => {
+      if (chat.id === selectedChat) {
+        return {
+          ...chat,
+          messages: [...chat.messages, newMessage],
+          lastMessage: '🎙️ Голосовое сообщение',
+          time: currentTime
+        };
+      }
+      return chat;
+    }));
+
+    setIsRecording(false);
+  };
+
+  const formatDuration = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
 
   const renderSidebar = () => (
     <div className="w-20 bg-card border-r border-border flex flex-col items-center py-6 gap-6">
@@ -123,7 +272,7 @@ const Index = () => {
       </div>
 
       <ScrollArea className="flex-1">
-        {mockChats.map((chat) => (
+        {chats.map((chat) => (
           <button
             key={chat.id}
             onClick={() => setSelectedChat(chat.id)}
@@ -253,7 +402,7 @@ const Index = () => {
       </div>
 
       <ScrollArea className="flex-1">
-        {mockChats.filter(c => c.type === 'group').map((group) => (
+        {chats.filter(c => c.type === 'group').map((group) => (
           <button
             key={group.id}
             className="w-full p-4 flex items-center gap-3 hover:bg-muted transition-colors border-b border-border"
@@ -307,7 +456,7 @@ const Index = () => {
       </div>
 
       <ScrollArea className="flex-1">
-        {mockChats.filter(c => c.type === 'channel').map((channel) => (
+        {chats.filter(c => c.type === 'channel').map((channel) => (
           <button
             key={channel.id}
             className="w-full p-4 flex items-center gap-3 hover:bg-muted transition-colors border-b border-border"
@@ -387,7 +536,8 @@ const Index = () => {
       );
     }
 
-    const chat = mockChats.find(c => c.id === selectedChat);
+    const chat = chats.find(c => c.id === selectedChat);
+    const messages = chat?.messages || [];
 
     return (
       <div className="flex-1 flex flex-col bg-background">
@@ -419,7 +569,7 @@ const Index = () => {
 
         <ScrollArea className="flex-1 p-6">
           <div className="space-y-4">
-            {mockMessages.map((message) => (
+            {messages.map((message) => (
               <div
                 key={message.id}
                 className={`flex ${message.isMine ? 'justify-end' : 'justify-start'}`}
@@ -431,29 +581,93 @@ const Index = () => {
                       : 'bg-card text-foreground rounded-bl-sm'
                   }`}
                 >
-                  <p>{message.text}</p>
-                  <p className={`text-xs mt-1 ${message.isMine ? 'text-white/70' : 'text-muted-foreground'}`}>
-                    {message.time}
-                  </p>
+                  {message.type === 'text' ? (
+                    <>
+                      <p>{message.text}</p>
+                      <p className={`text-xs mt-1 ${message.isMine ? 'text-white/70' : 'text-muted-foreground'}`}>
+                        {message.time}
+                      </p>
+                    </>
+                  ) : (
+                    <div className="flex items-center gap-3">
+                      <Button 
+                        size="sm" 
+                        variant="ghost" 
+                        className={`rounded-full w-8 h-8 p-0 ${message.isMine ? 'hover:bg-white/20' : 'hover:bg-muted'}`}
+                      >
+                        <Icon name="Play" size={16} />
+                      </Button>
+                      <div className="flex-1">
+                        <div className="h-1 bg-white/30 rounded-full w-32"></div>
+                        <p className={`text-xs mt-1 ${message.isMine ? 'text-white/70' : 'text-muted-foreground'}`}>
+                          {formatDuration(message.duration || 0)} • {message.time}
+                        </p>
+                      </div>
+                      <Icon name="Mic" size={16} className={message.isMine ? 'text-white/70' : 'text-muted-foreground'} />
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
+            <div ref={messagesEndRef} />
           </div>
         </ScrollArea>
 
         <div className="p-4 border-t border-border bg-card">
-          <div className="flex gap-2">
-            <Button size="sm" variant="ghost">
-              <Icon name="Paperclip" size={20} />
-            </Button>
-            <Input placeholder="Введите сообщение..." className="flex-1" />
-            <Button size="sm" variant="ghost">
-              <Icon name="Mic" size={20} />
-            </Button>
-            <Button size="sm" className="bg-primary hover:bg-primary/90">
-              <Icon name="Send" size={20} />
-            </Button>
-          </div>
+          {isRecording ? (
+            <div className="flex items-center gap-3 animate-pulse">
+              <div className="flex items-center gap-2 flex-1">
+                <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse"></div>
+                <span className="text-sm font-medium">{formatDuration(recordingTime)}</span>
+                <div className="h-1 bg-primary/30 rounded-full flex-1"></div>
+              </div>
+              <Button 
+                size="sm" 
+                variant="ghost"
+                onClick={stopRecording}
+                className="bg-red-500 hover:bg-red-600 text-white"
+              >
+                <Icon name="StopCircle" size={20} />
+              </Button>
+            </div>
+          ) : (
+            <div className="flex gap-2">
+              <Button size="sm" variant="ghost">
+                <Icon name="Paperclip" size={20} />
+              </Button>
+              <Input 
+                placeholder="Введите сообщение..." 
+                className="flex-1"
+                value={messageText}
+                onChange={(e) => setMessageText(e.target.value)}
+                onKeyPress={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    sendMessage();
+                  }
+                }}
+              />
+              <Button 
+                size="sm" 
+                variant="ghost"
+                onMouseDown={startRecording}
+                onMouseUp={stopRecording}
+                onMouseLeave={stopRecording}
+                onTouchStart={startRecording}
+                onTouchEnd={stopRecording}
+              >
+                <Icon name="Mic" size={20} />
+              </Button>
+              <Button 
+                size="sm" 
+                className="bg-primary hover:bg-primary/90"
+                onClick={sendMessage}
+                disabled={!messageText.trim()}
+              >
+                <Icon name="Send" size={20} />
+              </Button>
+            </div>
+          )}
         </div>
       </div>
     );
